@@ -26,7 +26,7 @@ The primary goal of this project is to reduce dependence on expensive pixel-leve
 To investigate whether image-level supervision combined with deep learning-based localization techniques can generate useful fracture pseudo-masks and reduce the need for manual pixel-level annotation in bone fracture segmentation.
 
 
-Author:
+## Author:
 
-Shibli1123
-Alif-Lucifer
+## Shibli1123
+## Alif-Lucifer
