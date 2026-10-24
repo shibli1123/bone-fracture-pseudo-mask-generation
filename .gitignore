@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .venv/
 outputs/
+Datasets/
 docs/manuscript_draft.docx
 *.pt
 *.pth

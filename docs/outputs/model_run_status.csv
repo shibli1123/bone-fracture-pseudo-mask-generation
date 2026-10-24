@@ -1,4 +1,4 @@
 model,status,reason
-ResNet-50 classifier,not run,"PyTorch/torchvision unavailable; no trained checkpoint or predictions"
-DenseNet-121 classifier,not run,"PyTorch/torchvision unavailable; no trained checkpoint or predictions"
-Compact U-Net segmenter,not run,"PyTorch/torchvision unavailable and no expert pixel masks"
+ResNet-50 classifier,trained and evaluated on held-out test split,"seed 0; epoch 5; see classifier_test_summary.json"
+DenseNet-121 classifier,not run,"not included in the single-configuration experiment"
+Compact U-Net segmenter,not run,"no expert pixel masks are available"

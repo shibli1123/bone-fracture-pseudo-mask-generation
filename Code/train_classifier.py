@@ -67,14 +67,15 @@ def evaluate(model, loader, device):
             loss_total += criterion(logits, y).item() * len(y)
             ys.extend(y.cpu().tolist())
             probs.extend(torch.softmax(logits, dim=1)[:, 0].cpu().tolist())
-    pred = [int(value >= 0.5) for value in probs]
+    y_fractured = np.asarray(ys) == CLASS_NAMES.index("fractured")
+    pred_fractured = np.asarray(probs) >= 0.5
     metrics = {
         "loss": loss_total / max(len(ys), 1),
-        "accuracy": accuracy_score(ys, pred),
-        "precision_fractured": precision_score(ys, pred, zero_division=0),
-        "recall_fractured": recall_score(ys, pred, zero_division=0),
-        "f1_fractured": f1_score(ys, pred, zero_division=0),
-        "auc_fractured": roc_auc_score(ys, probs) if len(set(ys)) == 2 else float("nan"),
+        "accuracy": accuracy_score(y_fractured, pred_fractured),
+        "precision_fractured": precision_score(y_fractured, pred_fractured, zero_division=0),
+        "recall_fractured": recall_score(y_fractured, pred_fractured, zero_division=0),
+        "f1_fractured": f1_score(y_fractured, pred_fractured, zero_division=0),
+        "auc_fractured": roc_auc_score(y_fractured, probs) if len(set(ys)) == 2 else float("nan"),
     }
     return metrics
 

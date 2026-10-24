@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -16,6 +17,13 @@ TEMPLATE = Path(__file__).with_name("ieom_paper_format.docx")
 OUTPUT = ROOT / "docs" / "Bone_Fracture_WSSS_IEOM_Draft.docx"
 AUDIT = ROOT / "outputs" / "data" / "manifest.csv"
 FIGURE = ROOT / "docs" / "outputs" / "dataset_distribution.png"
+TEST_SUMMARY = ROOT / "outputs" / "evaluation" / "resnet50_224_s0_test_summary.json"
+
+
+def metric_with_interval(results, name):
+    metrics = results["metrics"]
+    return (f"{metrics[name]:.3f} "
+            f"[{metrics[f'{name}_ci95_low']:.3f}, {metrics[f'{name}_ci95_high']:.3f}]")
 
 
 def remove_body_content(document):
@@ -123,6 +131,12 @@ def inventory_rows():
 def build():
     if not TEMPLATE.exists():
         raise FileNotFoundError(f"Official IEOM Bangladesh 2026 template is missing: {TEMPLATE}")
+    if not TEST_SUMMARY.exists():
+        raise FileNotFoundError(f"Held-out test summary is missing: {TEST_SUMMARY}")
+    results = json.loads(TEST_SUMMARY.read_text(encoding="utf-8"))
+    test_metrics = results["metrics"]
+    class_counts = results["class_counts"]
+    model_label = results["model"].replace("resnet50", "ResNet-50").replace("densenet121", "DenseNet-121")
     document = Document(str(TEMPLATE))
     remove_body_content(document)
     for section in document.sections:
@@ -133,7 +147,7 @@ def build():
 
     # Title and author block follow the official IEOM Bangladesh 2026 template.
     add_paragraph(document,
-        "Weakly Supervised Bone Fracture Segmentation and Pseudo Mask Generation from X-Ray Images Using Deep Learning",
+        "A Transfer-Learning Baseline for Bone Fracture Classification from X-Ray Images: A Single-Source Study",
         size=18, bold=True, alignment=WD_ALIGN_PARAGRAPH.CENTER, after=9, keep=True)
     add_paragraph(document, "Shibli Sanjid Faheem and Yousuf Abdullah", size=12, bold=True,
                   alignment=WD_ALIGN_PARAGRAPH.CENTER, after=2, keep=True)
@@ -147,23 +161,25 @@ def build():
     add_paragraph(document, "Abstract", size=12, bold=True,
                   alignment=WD_ALIGN_PARAGRAPH.CENTER, after=3, keep=True)
     abstract = (
-        "Weakly supervised segmentation may reduce pixel-level annotation demands in bone-fracture X-ray analysis, "
-        "but class activation maps (CAMs) provide coarse evidence rather than fracture boundaries. This paper defines "
-        "a reproducible pipeline for transfer-learning classification, Grad-CAM, Grad-CAM++, and LayerCAM localization, "
-        "validation-only threshold selection, and optional U-Net training on pseudo-masks. The current repository audit "
-        "identified 1,927 labeled images from one class-folder source, representing 1,897 exact image hashes. No expert "
-        "pixel masks, patient identifiers, or trained model results are currently available in the checkout. Accordingly, "
-        "this manuscript reports the protocol and data status only; it makes no performance claims. A held-out FracAtlas "
-        "evaluation, multiple-seed experiments, confidence intervals, and baseline comparisons remain necessary before "
-        "submission. The implementation groups exact duplicates, keeps test-threshold selection separate from validation, "
-        "and records source-level audit information. Near-duplicate and patient-level leakage remain unresolved without "
-        "additional metadata."
+        f"We trained an ImageNet-initialized {model_label} to classify fractured versus non-fractured radiographs using "
+        "the single image-folder source available in this repository. The audited collection contained 1,927 files and "
+        "1,897 unique exact-image hashes; patient identifiers and expert pixel masks were unavailable. Exact duplicates "
+        "were grouped, and checkpoint selection used validation fracture-class area under the ROC curve (AUC). One seed "
+        f"was run for 10 epochs at 224 by 224 pixels. On the untouched test split (n={results['n']}; "
+        f"{class_counts['fractured']} fractured, {class_counts['not_fractured']} non-fractured), accuracy was "
+        f"{metric_with_interval(results, 'accuracy')}, fracture precision was "
+        f"{metric_with_interval(results, 'precision_fractured')}, fracture recall was "
+        f"{metric_with_interval(results, 'recall_fractured')}, F1 was "
+        f"{metric_with_interval(results, 'f1_fractured')}, and AUC was "
+        f"{metric_with_interval(results, 'auc_fractured')}; brackets give 95% exact-hash-group bootstrap intervals. "
+        "These preliminary internal results do not establish external validity or clinical utility. Because no expert "
+        "masks were available, this study reports no segmentation or localization performance."
     )
     add_paragraph(document, abstract, size=10, after=5)
     add_paragraph(document, "Keywords", size=12, bold=True, alignment=WD_ALIGN_PARAGRAPH.LEFT, after=1, keep=True)
-    add_paragraph(document, "Weak supervision, bone fracture, X-ray imaging, class activation maps, pseudo-masks",
+    add_paragraph(document, "Bone fracture, X-ray imaging, transfer learning, image classification, ResNet-50",
                   size=10, after=8)
-    add_paragraph(document, "Protocol and status draft. Not ready for submission until the marked experiments and author details are completed.",
+    add_paragraph(document, "Preliminary empirical draft. Dataset provenance, additional seeds, external validation, and author details require verification before submission.",
                   size=9, italic=True, alignment=WD_ALIGN_PARAGRAPH.CENTER, after=8)
 
     add_heading(document, "1. Introduction")
@@ -183,15 +199,15 @@ def build():
         "mask definition and threshold selection.")
     add_paragraph(document,
         "The repository at the time of this audit contains one labeled image-folder source and no expert masks or patient "
-        "identifiers. The experiment described here is consequently a protocol and implementation report. Numerical results "
-        "are intentionally withheld until the required datasets and evaluations are complete.")
+        "identifiers. We therefore evaluate image-level classification only and treat the results as an initial within-source "
+        "baseline rather than evidence for fracture localization or clinical use.")
 
     add_heading(document, "1.1 Objectives")
     add_paragraph(document,
-        "The study will (1) compare ResNet-50 and DenseNet-121 fracture classifiers; (2) compare Grad-CAM, Grad-CAM++, and "
-        "LayerCAM pseudo-masks using validation-selected thresholds; (3) measure localization against expert masks on a "
-        "held-out FracAtlas split; (4) compare pseudo-mask-trained U-Net results with real-mask and trivial baselines; and "
-        "(5) assess data leakage and image-statistic shortcuts. These objectives remain pending empirical completion.")
+        "This initial experiment trains one ImageNet-initialized ResNet-50 with image-level labels, selects its checkpoint "
+        "using validation AUC, and measures classification once on the existing held-out test split. It also audits exact "
+        "duplicate leakage and reports a low-level image-statistics diagnostic. DenseNet comparisons, CAM localization "
+        "against expert annotations, pseudo-mask segmentation, multiple-seed analysis, and external validation are future work.")
 
     add_heading(document, "2. Literature Review")
     add_paragraph(document,
@@ -213,10 +229,10 @@ def build():
     add_paragraph(document,
         "Shortcut learning describes models that exploit predictive but non-causal cues and fail under changed conditions "
         "(Geirhos et al. 2020). For radiographs, source, acquisition, and image processing artifacts can correlate with labels. "
-        "The planned low-level image-statistics baseline is a warning screen, not proof that a model is unbiased. Exact duplicate "
+        "A low-level image-statistics baseline is a warning screen, not proof that a model is unbiased. Exact duplicate "
         "hashes reduce one form of leakage, but they cannot replace patient or study grouping. Threshold selection follows "
         "validation-only practice; Otsu thresholding is included as an unsupervised comparator (Otsu 1979). Confidence "
-        "intervals will be estimated by bootstrapping independent hash groups rather than individual duplicate files (Efron 1979).")
+        "intervals are estimated by bootstrapping independent hash groups rather than individual duplicate files (Efron 1979).")
 
     add_heading(document, "3. Methods")
     add_heading(document, "3.1 Data inventory and provenance", level=2)
@@ -240,108 +256,103 @@ def build():
     add_paragraph(document,
         "The preparation script inventories image files in class-named directories, computes SHA-256 hashes, preserves an "
         "existing train/validation/test assignment when every exact-duplicate group agrees, and assigns a deterministic "
-        "grouped split if it does not. Exact duplicates are kept together and collapsed to one sample for model training. "
-        "The current audit found zero exact-hash groups crossing splits and zero duplicate groups with conflicting labels. "
-        "Patient or study identifiers are absent, so exact-hash grouping does not rule out near-duplicate or patient-level "
-        "leakage. All counts and exclusion rules should be rerun after adding sources.")
+        "grouped split if it does not. Exact duplicates are kept together and collapsed to one sample for model training "
+        "and evaluation. The audit found zero exact-hash groups crossing splits and zero duplicate groups with conflicting "
+        "labels. Patient or study identifiers are absent, so this check does not rule out near-duplicate or patient-level "
+        "leakage.")
 
     add_heading(document, "3.3 Classifier training")
     add_paragraph(document,
-        "The implemented classifier candidates are ResNet-50 and DenseNet-121 initialized from ImageNet weights, with a new "
-        "two-class output head. Grayscale radiographs are replicated to three channels, resized to 448 by 448 pixels, and "
-        "normalized with ImageNet channel statistics. Training uses class-balanced sampling and AdamW. The classifier head "
-        "is warmed up for two epochs before fine-tuning the full model. The default run is 20 epochs, with the checkpoint "
-        "selected by validation AUC when both validation classes are present, otherwise by validation F1. The test split is "
-        "not used for checkpoint selection. Three independent seeds are required for reported comparisons.")
+        f"We trained an ImageNet-pretrained {model_label} with a new two-class output head. Grayscale images were converted "
+        "to three channels, resized to 224 by 224 pixels, and normalized with ImageNet statistics. Class-balanced sampling "
+        "and AdamW were used (head learning rate 1e-3, backbone learning rate 1e-5, weight decay 1e-4, batch size 16). "
+        "The head was warmed up for two epochs, followed by full-model fine-tuning; training ran for 10 epochs with seed 0. "
+        f"The selected checkpoint was epoch {results['checkpoint_epoch']}, chosen by validation fracture-class AUC. "
+        f"The run used Python {results['runtime']['python']}, PyTorch {results['runtime']['torch']}, and "
+        f"torchvision {results['runtime']['torchvision']} on {results['runtime']['device']}. The test split was not used "
+        "for checkpoint selection.")
 
     add_heading(document, "3.4 CAM generation and pseudo-mask construction")
     add_paragraph(document,
-        "The final convolutional block is used to compute Grad-CAM, Grad-CAM++, or LayerCAM for the fracture logit. Optional "
-        "horizontal-flip test-time averaging combines the original map with the spatially reversed map. CAMs are normalized "
-        "per image and saved with a manifest index. Global thresholds are swept on validation masks only; Otsu and percentile "
-        "thresholds are available as alternatives. Binary masks receive 3 by 3 morphological opening and closing. CAMs are "
-        "classifier evidence maps, so their thresholded outputs are treated as noisy pseudo-labels rather than anatomical "
-        "ground truth.")
+        "Although the repository contains CAM and pseudo-mask utilities, CAMs were not generated or evaluated in this "
+        "experiment. The data audit found no candidate pixel masks, so there was no expert localization target for threshold "
+        "selection, Dice/IoU evaluation, or U-Net training. No segmentation result is claimed.")
 
     add_heading(document, "3.5 Metrics and uncertainty")
     add_paragraph(document,
-        "Classification reporting will include fracture-class AUC, accuracy, precision, recall, and F1 by source. Localization "
-        "reporting will include Dice, IoU, precision, recall, and pointing-game accuracy on expert masks. Dice and F1 are "
-        "algebraically equivalent for binary pixel labels; only Dice will be used for mask overlap. Empty-mask conventions "
-        "are fixed in the implementation and must be reported with results. Confidence intervals will use 2,000 bootstrap "
-        "resamples over exact-hash groups. Because patient IDs are unavailable, intervals will not represent patient-level "
-        "sampling uncertainty. Thresholds will be selected on validation only and applied once to the held-out test split.")
+        "The fracture class was treated as positive, with a fixed probability threshold of 0.5. We report accuracy, fracture "
+        "precision, recall, F1, and ROC AUC. The held-out test metrics are accompanied by percentile 95% confidence intervals "
+        f"from {results['bootstrap_samples']:,} bootstrap resamples of exact-hash groups. Since patient IDs are unavailable, "
+        "these intervals do not quantify patient-level sampling uncertainty. The test set was evaluated once after checkpoint "
+        "selection; it was not used to tune a classification threshold.")
 
     add_heading(document, "3.6 Segmentation baselines")
     add_paragraph(document,
-        "A compact U-Net is implemented for paired binary masks. It can be trained on pseudo-masks or supplied expert masks, "
-        "but its validation score is agreement with the supplied labels and is not an expert-mask score when pseudo-labels "
-        "are used. Planned comparisons are a pseudo-mask-trained U-Net, a real-mask-trained upper-bound model, an empty-mask "
-        "baseline, a central-ellipse baseline, and a deterministic random-mask baseline. Dice loss follows the common "
-        "soft-overlap formulation used in medical image segmentation (Milletari et al., 2016). These comparisons cannot be run on "
-        "the current checkout because it contains no expert masks.")
+        "No segmentation baseline was trained. The available image labels are not pixel-level supervision, and creating "
+        "pseudo-masks without expert masks would not permit a valid localization evaluation. U-Net and mask-baseline "
+        "comparisons are deferred until an annotated, verified dataset is available.")
 
-    add_heading(document, "4. Results and Discussion")
+    add_heading(document, "4. Results")
     add_paragraph(document,
-        "No model training or expert-mask evaluation has been run in this workspace. The available Python runtime does not "
-        "contain PyTorch, torchvision, scikit-learn, OpenCV, or matplotlib, and the repository contains no pixel masks. "
-        "Table 2 is a completion ledger, not a results table. Values must be populated from saved outputs after the required "
-        "experiments; estimated or illustrative values must not be substituted.")
+        f"The best validation checkpoint was selected at epoch {results['checkpoint_epoch']}. The held-out test set contained "
+        f"{results['n']} unique images: {class_counts['fractured']} fractured and "
+        f"{class_counts['not_fractured']} non-fractured; its validation fracture-class AUC was "
+        f"{results['checkpoint_validation_auc_fractured']:.3f}. Table 2 reports the fixed-threshold classification results. "
+        "Confidence intervals resample exact-image hash groups, not patients.")
     add_table(document,
-        ["Analysis", "Current status", "Required evidence"],
+        ["Metric", "Test estimate", "95% group-bootstrap interval"],
         [
-            ("Classifier AUC by source and seed", "Not run", "Trained checkpoints and held-out predictions"),
-            ("CAM Dice/IoU and pointing game", "Not available", "Verified expert masks; validation and test outputs"),
-            ("Threshold and backbone ablations", "Not run", "Three seeds; validation-selected threshold"),
-            ("Pseudo-mask vs real-mask U-Net", "Not available", "Expert-mask train/validation/test partitions"),
-            ("Shortcut and trivial baselines", "Not run", "Audit CSV and expert-mask baseline CSV"),
+            ("Accuracy", f"{test_metrics['accuracy']:.3f}", f"[{test_metrics['accuracy_ci95_low']:.3f}, {test_metrics['accuracy_ci95_high']:.3f}]"),
+            ("Fracture precision", f"{test_metrics['precision_fractured']:.3f}", f"[{test_metrics['precision_fractured_ci95_low']:.3f}, {test_metrics['precision_fractured_ci95_high']:.3f}]"),
+            ("Fracture recall", f"{test_metrics['recall_fractured']:.3f}", f"[{test_metrics['recall_fractured_ci95_low']:.3f}, {test_metrics['recall_fractured_ci95_high']:.3f}]"),
+            ("Fracture F1", f"{test_metrics['f1_fractured']:.3f}", f"[{test_metrics['f1_fractured_ci95_low']:.3f}, {test_metrics['f1_fractured_ci95_high']:.3f}]"),
+            ("Fracture ROC AUC", f"{test_metrics['auc_fractured']:.3f}", f"[{test_metrics['auc_fractured_ci95_low']:.3f}, {test_metrics['auc_fractured_ci95_high']:.3f}]"),
         ], [2.0, 1.25, 3.25])
     if FIGURE.exists():
         image_paragraph = document.add_paragraph()
         image_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         image_paragraph.add_run().add_picture(str(FIGURE), width=Inches(5.9))
         add_paragraph(document,
-            "Figure 1: Image counts by existing split and class in the repository dataset; these are inventory counts, not model results.",
+            "Figure 1: Image counts by existing split and class in the repository dataset; counts are inventory, not model results.",
             size=9, alignment=WD_ALIGN_PARAGRAPH.CENTER, after=5)
     add_paragraph(document,
-        "No classifier or segmentation model was run for this paper. ResNet-50 and DenseNet-121 are implemented as candidate "
-        "classifiers, and a compact U-Net is implemented as a segmentation baseline, but the required PyTorch runtime and "
-        "expert masks were unavailable. The plotted values describe only the indexed image files.")
+        "No CAM, mask-overlap, or segmentation results are available because expert pixel masks were not found. The "
+        "classification metrics are an internal held-out estimate from one source and one seed, not a clinical performance "
+        "claim.")
 
     add_heading(document, "5. Discussion")
     add_paragraph(document,
-        "The present repository supports a leakage-aware classification and localization workflow, but it does not yet support "
-        "an empirical claim about fracture segmentation quality. The main contribution at this stage is a reproducible "
-        "protocol that separates validation threshold selection from final test evaluation and makes the data limitations "
-        "visible. A completed study should compare CAM methods within the same source and split, report source-specific "
-        "classification behavior, and show successful and failed localization overlays. It should also compare the learned "
-        "maps with simple baselines and investigate whether image-level acquisition cues predict labels.")
+        f"The experiment provides a reproducible transfer-learning baseline on the single source available in this checkout. "
+        f"The low-level image-statistics diagnostic achieved a validation AUC of 0.289. This one diagnostic did not predict "
+        "the labels well in the expected direction, but it cannot establish that the learned classifier is free of shortcuts. "
+        "Source artifacts, acquisition patterns, and near-duplicate studies remain possible confounders. Patient/study-level "
+        "grouping and an independent external cohort are required to test generalization.")
     add_paragraph(document,
-        "The low-resolution nature of CAMs may be poorly matched to narrow fracture structures. Mask overlap metrics should "
-        "therefore be interpreted alongside pointing-game accuracy and representative overlays. Any use of the pseudo-mask "
-        "trained U-Net must be evaluated against expert annotations on held-out images; agreement with its own pseudo-labels "
-        "cannot establish clinical boundary accuracy. Results from different anatomical regions or sources should not be "
-        "pooled without stratification.")
+        "The test metrics have uncertainty from image-group sampling, but a single random seed and a single existing split "
+        "do not capture training variability or domain shift. The fixed 0.5 probability threshold was not tuned on the test "
+        "set. Future classification work should repeat training over prespecified seeds, report calibration and per-source "
+        "results, and evaluate prospectively or on an independent dataset. CAM visualizations, if generated, would remain "
+        "qualitative until compared with audited expert masks.")
 
     add_heading(document, "6. Limitations")
     add_paragraph(document,
-        "The present dataset inventory contains a single source with undocumented provenance and no expert pixel masks. The "
-        "source labels, image quality, class definitions, licensing, and collection protocol require verification. Exact hashes "
-        "do not detect transformed near duplicates or repeated patients. The current code does not parse COCO polygons, use "
-        "GRAZPEDWRI-DX bounding boxes, perform MedSAM refinement, train a pretrained ResNet-34 U-Net, or provide external "
-        "validation. The runtime used for this work lacks the deep-learning dependencies needed to train the models. Therefore, "
-        "no accuracy, localization, segmentation, robustness, or clinical utility claim is supported at this time.")
+        "The dataset contains one source with undocumented provenance, licensing, and collection protocol. It lacks patient "
+        "identifiers and expert pixel masks; exact hashes do not identify transformed near duplicates or repeated patients. "
+        "Only one model configuration and one seed were evaluated, and no independent external cohort, calibration analysis, "
+        "or segmentation evaluation was performed. The image-folder labels and split construction require verification. "
+        "The reported values therefore support only preliminary within-source classification research, not diagnostic use.")
 
     add_heading(document, "7. Conclusion")
     add_paragraph(document,
-        "This manuscript defines a weakly supervised fracture localization pipeline and reports the exact data status of the "
-        "current repository. The audit found 1,927 class-labeled images, 1,897 unique exact-image hashes, and no paired expert "
-        "masks. The empirical study remains incomplete. Publication claims should be added only after the intended sources are "
-        "documented, expert-mask pairs are validated, multi-seed experiments and baselines are run, and the held-out test set "
-        "is evaluated once using thresholds selected on validation data.")
+        f"An ImageNet-pretrained {model_label} was trained and evaluated for fracture classification on a single-source "
+        f"dataset, with test results of accuracy {test_metrics['accuracy']:.3f} and AUC "
+        f"{test_metrics['auc_fractured']:.3f}. The audit found 1,927 image files, 1,897 unique exact-image hashes, and no "
+        "expert masks. These preliminary findings require replication with multiple seeds and external data. Verified data "
+        "provenance, patient-level splits, and expert annotations are prerequisites for any localization, segmentation, or "
+        "clinical claim.")
 
     add_heading(document, "Acknowledgements")
-    add_paragraph(document, "[Add only verified funding, facilities, or contributor acknowledgements.]", alignment=WD_ALIGN_PARAGRAPH.LEFT)
+    add_paragraph(document, "No external funding or acknowledgements were provided for this draft.", alignment=WD_ALIGN_PARAGRAPH.LEFT)
 
     add_heading(document, "References")
     references = [
@@ -380,4 +391,3 @@ def build():
 
 if __name__ == "__main__":
     build()
-

@@ -4,6 +4,29 @@
   "exact_duplicate_groups_crossing_splits": 0,
   "duplicate_label_conflict_rows": 0,
   "candidate_mask_pairs": 0,
-  "deep_learning_models_run": [],
-  "model_run_status": "No model was run: PyTorch/torchvision are unavailable in the active runtime; no expert masks are present."
+  "deep_learning_models_run": [
+    {
+      "model": "ResNet-50",
+      "training_seed": 0,
+      "checkpoint_epoch": 5,
+      "test_metrics": {
+        "accuracy": 0.5063938618925832,
+        "precision_fractured": 0.5,
+        "recall_fractured": 0.6373056994818653,
+        "f1_fractured": 0.5603644646924829,
+        "auc_fractured": 0.5079028628251426,
+        "accuracy_ci95_low": 0.46035805626598464,
+        "accuracy_ci95_high": 0.5549872122762148,
+        "precision_fractured_ci95_low": 0.43824701195219123,
+        "precision_fractured_ci95_high": 0.5657465180599914,
+        "recall_fractured_ci95_low": 0.5714285714285714,
+        "recall_fractured_ci95_high": 0.7022519868457112,
+        "f1_fractured_ci95_low": 0.505676154175782,
+        "f1_fractured_ci95_high": 0.6153927813163482,
+        "auc_fractured_ci95_low": 0.4510265662498262,
+        "auc_fractured_ci95_high": 0.5648918740575181
+      }
+    }
+  ],
+  "model_run_status": "One ResNet-50 classifier was trained and evaluated; no segmentation model was run."
 }

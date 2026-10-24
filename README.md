@@ -4,7 +4,7 @@ This repository contains a reproducible research pipeline for image-level fractu
 
 ## Current evidence and limits
 
-The checked-in data currently contains one class-folder X-ray source. It does not include the FracAtlas expert masks, the other sources named in the research guide, patient identifiers, or validated segmentation labels. No deep-learning model has been run in this workspace: PyTorch and torchvision are unavailable here. The draft in `docs/` reports the verified dataset inventory and is explicitly not a completed empirical paper. Do not treat the audit figure as model performance.
+The available data contains one class-folder X-ray source. It does not include the FracAtlas expert masks, the other sources named in the research guide, patient identifiers, or validated segmentation labels. Classification results from this source alone do not establish external validity or clinical utility. No segmentation metrics can be reported without expert masks.
 
 Exact SHA-256 duplicates are grouped so they cannot cross splits, and duplicates are collapsed for model training. This is not patient-level separation and does not detect near duplicates. The data audit reports label conflicts, source/split counts, and candidate mask matches. Review the audit before training.
 
@@ -29,6 +29,14 @@ python cam_generate.py --checkpoint ..\outputs\classifiers\resnet50_448_s0\best.
 ```
 
 Supported classifiers are ResNet-50 and DenseNet-121. ImageNet weights are downloaded by torchvision unless `--no-pretrained` is supplied. Classifier selection uses validation data; the test split is not evaluated during training. Repeat with seeds 0, 1, and 2 for a paper study.
+
+After training and selecting the checkpoint on validation, evaluate the held-out test split once:
+
+```powershell
+python evaluate_classifier.py --checkpoint ..\outputs\classifiers\resnet50_448_s0\best.pt
+```
+
+This writes per-image predictions and classification metrics with 95% bootstrap intervals to `../outputs/evaluation/`. The test evaluator does not tune thresholds or model parameters.
 
 When expert masks are available, tune a global CAM threshold on validation only and use the selected value once on the test split:
 
@@ -58,6 +66,7 @@ Mask pairing is currently filename-based for files stored in directories named `
 
 - `Code/prepare_data.py`: image inventory, exact-hash grouping, manifest, and audit.
 - `Code/train_classifier.py`: transfer-learning classifier with head warm-up and fine-tuning.
+- `Code/evaluate_classifier.py`: one-time held-out classification evaluation with exact-hash-group bootstrap intervals.
 - `Code/cam_generate.py`, `Code/wsss/cam.py`: Grad-CAM, Grad-CAM++, LayerCAM, and optional flip averaging.
 - `Code/evaluate.py`, `Code/wsss/masks.py`: validation threshold sweep and mask metrics.
 - `Code/make_masks.py`: thresholding and morphology for pseudo-mask export.
@@ -66,21 +75,23 @@ Mask pairing is currently filename-based for files stored in directories named `
 - `Code/train_segmentation.py`: small U-Net baseline trained on paired masks.
 - `Code/aggregate_results.py`: aggregate run summaries across seeds.
 - `Code/export_audit_outputs.py`: export the repository inventory counts, audit-only plot, and explicit model-run status.
-- `Code/build_paper_draft.py`: generate the Word draft from the supplied IEOM formatting template.
+- `Code/build_paper_draft.py`: generate the Word paper draft from the supplied IEOM formatting template and saved run results.
 - `Code/ieom_paper_format.docx`: content-cleared copy of the author-supplied format, retaining its page design and header/footer.
 - `Code/bone_fracture_complete_all_in_one_colab (1).ipynb`: original exploratory notebook; the scripts above are canonical.
 
 ## Current outputs
 
-- `docs/Bone_Fracture_WSSS_IEOM_Draft.docx`: paper draft using the supplied IEOM manuscript layout, with Shibli Sanjid Faheem and Yousuf Abdullah as authors. It states that no classifier or segmentation model was run.
+- `docs/Bone_Fracture_WSSS_IEOM_Draft.docx`: paper draft using the supplied IEOM manuscript layout, with Shibli Sanjid Faheem and Yousuf Abdullah as authors. Classification findings are limited to the saved single-source run; no expert-mask segmentation results are claimed.
 - `docs/outputs/dataset_split_counts.csv` and `run_and_data_summary.json`: reproducible inventory counts from the dataset manifest.
 - `docs/outputs/dataset_distribution.png`: image-count plot by existing split and class; it is not a model result.
-- `docs/outputs/model_run_status.csv`: records the classifier and U-Net run status and why no performance output exists.
+- `docs/outputs/classifier_test_summary.json` and `classifier_training_history.csv`: aggregate held-out metrics and training history for the saved run.
+- `docs/outputs/model_run_status.csv`: records the classifier and U-Net run status; per-image predictions and model weights stay in ignored `outputs/`.
 
 Regenerate the audit outputs and paper after preparing the manifest with:
 
 ```powershell
 python Code\prepare_data.py
+python Code\evaluate_classifier.py --checkpoint outputs\classifiers\resnet50_224_s0\best.pt
 python Code\export_audit_outputs.py
 python Code\build_paper_draft.py
 ```
