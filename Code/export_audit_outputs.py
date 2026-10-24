@@ -16,6 +16,7 @@ MANIFEST = ROOT / "outputs" / "data" / "manifest.csv"
 OUT = ROOT / "docs" / "outputs"
 EVALUATION = ROOT / "outputs" / "evaluation"
 CLASSIFIERS = ROOT / "outputs" / "classifiers"
+SEGMENTERS = ROOT / "outputs" / "segmenters"
 SHORTCUT_CHECK = ROOT / "outputs" / "data" / "shortcut_check.csv"
 
 
@@ -52,11 +53,15 @@ def main() -> None:
         groups[row["sha256"]].add((row["split"], row["label"]))
         conflicts += int(row["label_conflict"].lower() == "true")
     test_summary_path = EVALUATION / "resnet50_224_s0_test_summary.json"
+    if not test_summary_path.exists():
+        test_summary_path = OUT / "classifier_test_summary.json"
     test_summary = json.loads(test_summary_path.read_text(encoding="utf-8")) if test_summary_path.exists() else None
     run_tag = "resnet50_224_s0"
     run_dir = CLASSIFIERS / run_tag
     if test_summary is not None:
-        shutil.copy2(test_summary_path, OUT / "classifier_test_summary.json")
+        published_summary = OUT / "classifier_test_summary.json"
+        if test_summary_path.resolve() != published_summary.resolve():
+            shutil.copy2(test_summary_path, published_summary)
         history_path = run_dir / "history.csv"
         if history_path.exists():
             shutil.copy2(history_path, OUT / "classifier_training_history.csv")
@@ -68,7 +73,7 @@ def main() -> None:
             "checkpoint_epoch": test_summary["checkpoint_epoch"],
             "test_metrics": test_summary["metrics"],
         }]
-        run_status = "One ResNet-50 classifier was trained and evaluated; no segmentation model was run."
+        run_status = "One ResNet-50 classifier was trained and evaluated on the held-out test split."
     elif (run_dir / "best.pt").exists():
         classifier_status = "trained; test evaluation not found"
         classifier_reason = "checkpoint exists, but no held-out test summary is available"
@@ -79,6 +84,42 @@ def main() -> None:
         classifier_reason = "no trained checkpoint or held-out test summary found"
         models_run = []
         run_status = "No trained classifier or held-out test summary was found."
+
+    segmenter_run = SEGMENTERS / "unet_128_s42"
+    segmenter_history = segmenter_run / "history.csv"
+    segmenter_checkpoint = segmenter_run / "best.pt"
+    segmenter_manifest = ROOT / "outputs" / "data" / "segmentation_train_manifest.csv"
+    segmenter_artifacts = (segmenter_history, segmenter_checkpoint, segmenter_manifest)
+    if any(path.exists() for path in segmenter_artifacts):
+        missing = [str(path) for path in segmenter_artifacts if not path.exists()]
+        if missing:
+            raise FileNotFoundError(f"Incomplete U-Net run artifacts: {', '.join(missing)}")
+        import pandas as pd
+        history = pd.read_csv(segmenter_history)
+        best = history.loc[history["val_dice_against_training_labels"].idxmax()]
+        split_counts = pd.read_csv(segmenter_manifest)["split"].value_counts().to_dict()
+        segmenter_status = "trained on train-only CAM pseudo-masks; no expert-mask evaluation"
+        segmenter_reason = (
+            f"seed 42; epoch {int(best['epoch'])}; "
+            f"validation Dice against pseudo-labels {best['val_dice_against_training_labels']:.4f}"
+        )
+        models_run.append({
+            "model": "Compact U-Net",
+            "training_seed": 42,
+            "checkpoint_epoch": int(best["epoch"]),
+            "training_images": int(split_counts.get("train", 0)),
+            "validation_images": int(split_counts.get("val", 0)),
+            "validation_metrics_against_pseudo_labels": {
+                "dice": float(best["val_dice_against_training_labels"]),
+                "iou": float(best["val_iou_against_training_labels"]),
+            },
+            "test_evaluated": False,
+        })
+        run_status += " A compact U-Net was trained using train-only CAM pseudo-masks; expert-mask evaluation was not possible."
+    else:
+        segmenter_status = "not run"
+        segmenter_reason = "no trained U-Net run artifacts found"
+        run_status += " No segmentation model run artifacts were found."
     summary = {
         "images_indexed": len(records),
         "unique_exact_sha256": len(hashes),
@@ -95,7 +136,7 @@ def main() -> None:
         "model,status,reason\n"
         f'ResNet-50 classifier,{classifier_status},"{classifier_reason}"\n'
         'DenseNet-121 classifier,not run,"not included in the single-configuration experiment"\n'
-        'Compact U-Net segmenter,not run,"no expert pixel masks are available"\n',
+        f'Compact U-Net segmenter,{segmenter_status},"{segmenter_reason}"\n',
         encoding="utf-8",
     )
 

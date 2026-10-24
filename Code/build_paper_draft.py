@@ -18,6 +18,11 @@ OUTPUT = ROOT / "docs" / "Bone_Fracture_WSSS_IEOM_Draft.docx"
 AUDIT = ROOT / "outputs" / "data" / "manifest.csv"
 FIGURE = ROOT / "docs" / "outputs" / "dataset_distribution.png"
 TEST_SUMMARY = ROOT / "outputs" / "evaluation" / "resnet50_224_s0_test_summary.json"
+PUBLISHED_TEST_SUMMARY = ROOT / "docs" / "outputs" / "classifier_test_summary.json"
+SEGMENTATION_RUN = ROOT / "outputs" / "segmenters" / "unet_128_s42"
+SEGMENTATION_HISTORY = SEGMENTATION_RUN / "history.csv"
+SEGMENTATION_CHECKPOINT = SEGMENTATION_RUN / "best.pt"
+SEGMENTATION_MANIFEST = ROOT / "outputs" / "data" / "segmentation_train_manifest.csv"
 
 
 def metric_with_interval(results, name):
@@ -131,12 +136,30 @@ def inventory_rows():
 def build():
     if not TEMPLATE.exists():
         raise FileNotFoundError(f"Official IEOM Bangladesh 2026 template is missing: {TEMPLATE}")
-    if not TEST_SUMMARY.exists():
+    test_summary_path = TEST_SUMMARY if TEST_SUMMARY.exists() else PUBLISHED_TEST_SUMMARY
+    if not test_summary_path.exists():
         raise FileNotFoundError(f"Held-out test summary is missing: {TEST_SUMMARY}")
-    results = json.loads(TEST_SUMMARY.read_text(encoding="utf-8"))
+    results = json.loads(test_summary_path.read_text(encoding="utf-8"))
     test_metrics = results["metrics"]
     class_counts = results["class_counts"]
     model_label = results["model"].replace("resnet50", "ResNet-50").replace("densenet121", "DenseNet-121")
+    segmentation_files = (SEGMENTATION_HISTORY, SEGMENTATION_CHECKPOINT, SEGMENTATION_MANIFEST)
+    segmentation = None
+    if any(path.exists() for path in segmentation_files):
+        missing = [str(path) for path in segmentation_files if not path.exists()]
+        if missing:
+            raise FileNotFoundError(f"Incomplete U-Net run artifacts: {', '.join(missing)}")
+        segmentation_history = pd.read_csv(SEGMENTATION_HISTORY)
+        best_segmentation = segmentation_history.loc[
+            segmentation_history["val_dice_against_training_labels"].idxmax()
+        ]
+        segmentation_counts = pd.read_csv(SEGMENTATION_MANIFEST)["split"].value_counts().to_dict()
+        segmentation = {
+            "best": best_segmentation,
+            "train_count": int(segmentation_counts.get("train", 0)),
+            "val_count": int(segmentation_counts.get("val", 0)),
+            "total_count": int(sum(segmentation_counts.values())),
+        }
     document = Document(str(TEMPLATE))
     remove_body_content(document)
     for section in document.sections:
@@ -172,8 +195,15 @@ def build():
         f"{metric_with_interval(results, 'recall_fractured')}, F1 was "
         f"{metric_with_interval(results, 'f1_fractured')}, and AUC was "
         f"{metric_with_interval(results, 'auc_fractured')}; brackets give 95% exact-hash-group bootstrap intervals. "
-        "These preliminary internal results do not establish external validity or clinical utility. Because no expert "
-        "masks were available, this study reports no segmentation or localization performance."
+        "These preliminary internal results do not establish external validity or clinical utility. "
+        + (
+            f"A U-Net was also trained on {segmentation['total_count']} training-only CAM pseudo-masks; its best "
+            f"validation Dice against held-out pseudo-masks was "
+            f"{segmentation['best']['val_dice_against_training_labels']:.3f}. This is pseudo-label agreement, "
+            "not expert-mask segmentation performance."
+            if segmentation else
+            "No expert masks were available, so segmentation or localization performance is not reported."
+        )
     )
     add_paragraph(document, abstract, size=10, after=5)
     add_paragraph(document, "Keywords", size=12, bold=True, alignment=WD_ALIGN_PARAGRAPH.LEFT, after=1, keep=True)
@@ -199,15 +229,16 @@ def build():
         "mask definition and threshold selection.")
     add_paragraph(document,
         "The repository at the time of this audit contains one labeled image-folder source and no expert masks or patient "
-        "identifiers. We therefore evaluate image-level classification only and treat the results as an initial within-source "
-        "baseline rather than evidence for fracture localization or clinical use.")
+        "identifiers. We evaluate image-level classification and, separately, train a U-Net on training-only CAM "
+        "pseudo-masks. Agreement with generated pseudo-masks is not evidence of fracture localization accuracy or clinical use.")
 
     add_heading(document, "1.1 Objectives")
     add_paragraph(document,
         "This initial experiment trains one ImageNet-initialized ResNet-50 with image-level labels, selects its checkpoint "
         "using validation AUC, and measures classification once on the existing held-out test split. It also audits exact "
-        "duplicate leakage and reports a low-level image-statistics diagnostic. DenseNet comparisons, CAM localization "
-        "against expert annotations, pseudo-mask segmentation, multiple-seed analysis, and external validation are future work.")
+        "duplicate leakage, reports a low-level image-statistics diagnostic, and trains a U-Net using only train-split "
+        "CAM pseudo-masks. Expert-mask evaluation, DenseNet comparisons, multiple-seed analysis, and external validation "
+        "remain future work.")
 
     add_heading(document, "2. Literature Review")
     add_paragraph(document,
@@ -273,10 +304,15 @@ def build():
         "for checkpoint selection.")
 
     add_heading(document, "3.4 CAM generation and pseudo-mask construction")
-    add_paragraph(document,
-        "Although the repository contains CAM and pseudo-mask utilities, CAMs were not generated or evaluated in this "
-        "experiment. The data audit found no candidate pixel masks, so there was no expert localization target for threshold "
-        "selection, Dice/IoU evaluation, or U-Net training. No segmentation result is claimed.")
+    if segmentation:
+        add_paragraph(document,
+            f"Grad-CAM maps from the trained classifier were generated only for the {segmentation['total_count']} unique "
+            "training images and thresholded at 0.35 to create pseudo-masks. No validation or test images were used to "
+            "generate training targets. These CAM-derived masks are noisy training labels, not expert annotations.")
+    else:
+        add_paragraph(document,
+            "The data audit found no expert pixel masks. CAMs and pseudo-masks are therefore not treated as expert "
+            "localization targets, and no segmentation performance is inferred from their visualizations.")
 
     add_heading(document, "3.5 Metrics and uncertainty")
     add_paragraph(document,
@@ -287,10 +323,17 @@ def build():
         "selection; it was not used to tune a classification threshold.")
 
     add_heading(document, "3.6 Segmentation baselines")
-    add_paragraph(document,
-        "No segmentation baseline was trained. The available image labels are not pixel-level supervision, and creating "
-        "pseudo-masks without expert masks would not permit a valid localization evaluation. U-Net and mask-baseline "
-        "comparisons are deferred until an annotated, verified dataset is available.")
+    if segmentation:
+        add_paragraph(document,
+            f"A compact U-Net was trained on {segmentation['train_count']} training pseudo-mask pairs and selected using "
+            f"{segmentation['val_count']} validation pairs, split by exact-image hash from the original training set. "
+            "The model used 128 by 128 grayscale inputs, batch size 8, seed 42, and three epochs. The held-out repository "
+            "test split was excluded. Dice and IoU below quantify agreement with generated pseudo-labels only; expert-mask "
+            "localization performance remains unmeasured.")
+    else:
+        add_paragraph(document,
+            "No segmentation run artifacts were available for this draft. Without expert masks, any CAM-derived pseudo-mask "
+            "agreement would not establish localization accuracy.")
 
     add_heading(document, "4. Results")
     add_paragraph(document,
@@ -315,8 +358,18 @@ def build():
         add_paragraph(document,
             "Figure 1: Image counts by existing split and class in the repository dataset; counts are inventory, not model results.",
             size=9, alignment=WD_ALIGN_PARAGRAPH.CENTER, after=5)
+    if segmentation:
+        add_paragraph(document,
+            "Table 3 reports U-Net validation agreement with held-out pseudo-masks; these values are not expert-mask "
+            "segmentation metrics and should not be interpreted as localization accuracy.")
+        add_table(document,
+            ["Validation measure", "Best checkpoint"],
+            [
+                ("Dice against pseudo-masks", f"{segmentation['best']['val_dice_against_training_labels']:.3f}"),
+                ("IoU against pseudo-masks", f"{segmentation['best']['val_iou_against_training_labels']:.3f}"),
+            ], [4.0, 2.0])
     add_paragraph(document,
-        "No CAM, mask-overlap, or segmentation results are available because expert pixel masks were not found. The "
+        "No expert pixel masks were found, so true localization and segmentation accuracy remain unevaluated. The "
         "classification metrics are an internal held-out estimate from one source and one seed, not a clinical performance "
         "claim.")
 
@@ -333,13 +386,18 @@ def build():
         "set. Future classification work should repeat training over prespecified seeds, report calibration and per-source "
         "results, and evaluate prospectively or on an independent dataset. CAM visualizations, if generated, would remain "
         "qualitative until compared with audited expert masks.")
+    if segmentation:
+        add_paragraph(document,
+            "The U-Net validation scores measure fit to CAM-generated pseudo-labels, whose errors are inherited by the "
+            "segmenter; they are not an independent assessment of fracture localization. Expert masks and a prespecified "
+            "external evaluation are necessary before interpreting these maps as anatomical segmentation.")
 
     add_heading(document, "6. Limitations")
     add_paragraph(document,
         "The dataset contains one source with undocumented provenance, licensing, and collection protocol. It lacks patient "
         "identifiers and expert pixel masks; exact hashes do not identify transformed near duplicates or repeated patients. "
         "Only one model configuration and one seed were evaluated, and no independent external cohort, calibration analysis, "
-        "or segmentation evaluation was performed. The image-folder labels and split construction require verification. "
+        "or expert-mask segmentation evaluation was performed. The image-folder labels and split construction require verification. "
         "The reported values therefore support only preliminary within-source classification research, not diagnostic use.")
 
     add_heading(document, "7. Conclusion")
@@ -347,9 +405,15 @@ def build():
         f"An ImageNet-pretrained {model_label} was trained and evaluated for fracture classification on a single-source "
         f"dataset, with test results of accuracy {test_metrics['accuracy']:.3f} and AUC "
         f"{test_metrics['auc_fractured']:.3f}. The audit found 1,927 image files, 1,897 unique exact-image hashes, and no "
-        "expert masks. These preliminary findings require replication with multiple seeds and external data. Verified data "
-        "provenance, patient-level splits, and expert annotations are prerequisites for any localization, segmentation, or "
-        "clinical claim.")
+        "expert masks. "
+        + (
+            f"A U-Net trained on train-only CAM pseudo-masks achieved validation Dice "
+            f"{segmentation['best']['val_dice_against_training_labels']:.3f} against held-out pseudo-labels, which is not "
+            "an expert localization result. "
+            if segmentation else ""
+        )
+        + "These preliminary findings require replication with multiple seeds and external data. Verified data provenance, "
+        "patient-level splits, and expert annotations are prerequisites for any localization, segmentation, or clinical claim.")
 
     add_heading(document, "Acknowledgements")
     add_paragraph(document, "No external funding or acknowledgements were provided for this draft.", alignment=WD_ALIGN_PARAGRAPH.LEFT)

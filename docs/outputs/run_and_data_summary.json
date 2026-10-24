@@ -26,7 +26,19 @@
         "auc_fractured_ci95_low": 0.4510265662498262,
         "auc_fractured_ci95_high": 0.5648918740575181
       }
+    },
+    {
+      "model": "Compact U-Net",
+      "training_seed": 42,
+      "checkpoint_epoch": 2,
+      "training_images": 734,
+      "validation_images": 184,
+      "validation_metrics_against_pseudo_labels": {
+        "dice": 0.3779336789285431,
+        "iou": 0.26653250196772826
+      },
+      "test_evaluated": false
     }
   ],
-  "model_run_status": "One ResNet-50 classifier was trained and evaluated; no segmentation model was run."
+  "model_run_status": "One ResNet-50 classifier was trained and evaluated on the held-out test split. A compact U-Net was trained using train-only CAM pseudo-masks; expert-mask evaluation was not possible."
 }
