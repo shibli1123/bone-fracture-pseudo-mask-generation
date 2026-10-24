@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+outputs/
+docs/manuscript_draft.docx
+*.pt
+*.pth
+~$*.docx
+*.npy

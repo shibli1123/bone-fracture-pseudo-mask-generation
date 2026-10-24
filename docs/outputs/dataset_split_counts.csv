@@ -1,0 +1,7 @@
+source,split,label,image_count,unique_sha256_count
+bone-fracture-dataset,test,fractured,193,193
+bone-fracture-dataset,test,not_fractured,198,198
+bone-fracture-dataset,train,fractured,640,624
+bone-fracture-dataset,train,not_fractured,296,294
+bone-fracture-dataset,val,fractured,360,348
+bone-fracture-dataset,val,not_fractured,240,240
